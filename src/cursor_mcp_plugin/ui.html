@@ -286,6 +286,16 @@
               max="65535"
             />
           </div>
+
+          <div id="token-container" style="margin-top: 12px">
+            <label for="token">Server Auth Token</label>
+            <input
+              type="password"
+              id="token"
+              placeholder="Token printed by the relay server"
+              autocomplete="off"
+            />
+          </div>
         </div>
 
         <div id="connection-status" class="status disconnected">
@@ -370,7 +380,10 @@
           <h2>How to Use</h2>
           <ol>
             <li>Make sure the MCP server is running in Cursor</li>
-            <li>Connect to the server using the port number (default: 3055)</li>
+            <li>
+              Connect to the server using the port number (default: 3055) and
+              the auth token printed by the relay server on startup
+            </li>
             <li>Once connected, you can interact with Figma through Cursor</li>
           </ol>
           <p style="font-size: 11px; color: #888; margin-top: 16px;">
@@ -389,6 +402,7 @@
         pendingRequests: new Map(),
         channel: null,
         commandTracking: new Map(),
+        lastError: null,
       };
 
       // --- Anonymous analytics (GA4 Measurement Protocol) ---
@@ -465,6 +479,7 @@
 
       // UI Elements
       const portInput = document.getElementById("port");
+      const tokenInput = document.getElementById("token");
       const connectButton = document.getElementById("btn-connect");
       const connectionStatus = document.getElementById("connection-status");
 
@@ -503,6 +518,7 @@
         connectButton.textContent = isConnected ? "Disconnect" : "Connect";
         connectButton.className = isConnected ? "secondary" : "primary";
         portInput.disabled = isConnected;
+        tokenInput.disabled = isConnected;
 
         // Show/hide MCP config section
         const mcpConfig = document.getElementById("mcp-config");
@@ -515,14 +531,23 @@
       }
 
       // Connect to WebSocket server
-      async function connectToServer(port) {
+      async function connectToServer(port, token) {
         try {
           if (state.connected && state.socket) {
             updateConnectionStatus(true, "Already connected to server");
             return;
           }
 
+          if (!token) {
+            updateConnectionStatus(
+              false,
+              "Auth token is required. Copy the token printed by the relay server."
+            );
+            return;
+          }
+
           state.serverPort = port;
+          state.lastError = null;
           const wsUrl = `ws://localhost:${port}`;
 
           state.socket = new WebSocket(wsUrl);
@@ -538,6 +563,7 @@
               JSON.stringify({
                 type: "join",
                 channel: channelName.trim(),
+                token: token,
               })
             );
           };
@@ -556,9 +582,10 @@
                     true,
                     `Connected to server in channel: <strong>${channelName}</strong>`
                   );
+                  // Channel names are access-control material - never send
+                  // them to third-party analytics.
                   analytics.track("channel_join", {
                     port: state.serverPort,
-                    channel: channelName,
                   });
 
                   // Notify the plugin code
@@ -573,8 +600,13 @@
                   );
                 }
               } else if (data.type === "error") {
-                console.error("Error:", data.message);
-                updateConnectionStatus(false, `Error: ${data.message}`);
+                const errorText =
+                  data.message && data.message.error
+                    ? data.message.error
+                    : data.message;
+                console.error("Error:", errorText);
+                state.lastError = errorText;
+                updateConnectionStatus(false, `Error: ${errorText}`);
                 state.socket.close();
               }
 
@@ -587,7 +619,13 @@
           state.socket.onclose = () => {
             state.connected = false;
             state.socket = null;
-            updateConnectionStatus(false, "Disconnected from server");
+            // Keep the rejection reason (e.g. auth failure) visible.
+            updateConnectionStatus(
+              false,
+              state.lastError
+                ? `Error: ${state.lastError}`
+                : "Disconnected from server"
+            );
           };
 
           state.socket.onerror = (error) => {
@@ -793,9 +831,10 @@
           disconnectFromServer();
         } else {
           const port = parseInt(portInput.value, 10) || 3055;
+          const token = tokenInput.value.trim();
           updateConnectionStatus(false, "Connecting...");
           connectionStatus.className = "status info";
-          connectToServer(port);
+          connectToServer(port, token);
         }
       });
 
@@ -926,6 +965,10 @@
             TalkToFigma: {
               command: "bunx",
               args: ["cursor-talk-to-figma-mcp@latest"],
+              env: {
+                FIGMA_SOCKET_TOKEN:
+                  tokenInput.value.trim() || "<token printed by bun socket>",
+              },
             },
           },
         };

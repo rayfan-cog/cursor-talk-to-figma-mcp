@@ -85,6 +85,10 @@ const args = process.argv.slice(2);
 const serverArg = args.find(arg => arg.startsWith('--server='));
 const serverUrl = serverArg ? serverArg.split('=')[1] : 'localhost';
 const WS_URL = serverUrl === 'localhost' ? `ws://${serverUrl}` : `wss://${serverUrl}`;
+const tokenArg = args.find(arg => arg.startsWith('--token='));
+// Shared secret required by the relay to join a channel. The relay prints one
+// at startup; pass it here via --token= or FIGMA_SOCKET_TOKEN.
+const AUTH_TOKEN = tokenArg ? tokenArg.split('=').slice(1).join('=') : (process.env.FIGMA_SOCKET_TOKEN || '');
 
 // Document Info Tool
 server.tool(
@@ -2938,7 +2942,7 @@ function connectToFigma(port: number = 3055) {
       if (
         myResponse.id &&
         pendingRequests.has(myResponse.id) &&
-        myResponse.result
+        (myResponse.result || myResponse.error)
       ) {
         const request = pendingRequests.get(myResponse.id)!;
         clearTimeout(request.timeout);
@@ -2989,6 +2993,10 @@ async function joinChannel(channelName: string): Promise<void> {
     throw new Error("Not connected to Figma");
   }
 
+  if (!AUTH_TOKEN) {
+    throw new Error("Missing relay auth token: set FIGMA_SOCKET_TOKEN or pass --token=<token>");
+  }
+
   try {
     await sendCommandToFigma("join", { channel: channelName });
     currentChannel = channelName;
@@ -3025,7 +3033,7 @@ function sendCommandToFigma(
       id,
       type: command === "join" ? "join" : "message",
       ...(command === "join"
-        ? { channel: (params as any).channel }
+        ? { channel: (params as any).channel, token: AUTH_TOKEN }
         : { channel: currentChannel }),
       message: {
         id,
