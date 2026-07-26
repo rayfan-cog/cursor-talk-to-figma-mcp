@@ -27,8 +27,16 @@ bun setup
 3. Start the Websocket server
 
 ```bash
+# Optional: pin a token instead of the random one printed at startup
+# export FIGMA_SOCKET_TOKEN="$(openssl rand -hex 32)"
 bun socket
 ```
+
+The relay requires a shared auth token to join a channel. It prints one on
+startup (or uses `FIGMA_SOCKET_TOKEN` if set). Give the same token to the MCP
+server (`FIGMA_SOCKET_TOKEN` env var or `--token=<token>`) and paste it into the
+Figma plugin's "Server Auth Token" field. Channels accept at most two
+participants (MCP server + plugin), so a third client cannot join.
 
 4. **NEW** Install Figma plugin from [Figma community page](https://www.figma.com/community/plugin/1485687494525374295/cursor-talk-to-figma-mcp-plugin) or [install locally](#figma-plugin)
 
@@ -57,7 +65,10 @@ Add the server to your Cursor MCP configuration in `~/.cursor/mcp.json`:
   "mcpServers": {
     "TalkToFigma": {
       "command": "bunx",
-      "args": ["cursor-talk-to-figma-mcp@latest"]
+      "args": ["cursor-talk-to-figma-mcp@latest"],
+      "env": {
+        "FIGMA_SOCKET_TOKEN": "<token printed by bun socket>"
+      }
     }
   }
 }
@@ -86,18 +97,25 @@ bun socket
 powershell -c "irm bun.sh/install.ps1|iex"
 ```
 
-2. Uncomment the hostname `0.0.0.0` in `src/socket.ts`
-
-```typescript
-// uncomment this to allow connections in windows wsl
-hostname: "0.0.0.0",
-```
-
-3. Start the websocket
+2. Start the websocket bound to an interface reachable from Windows
 
 ```bash
-bun socket
+HOST=0.0.0.0 bun socket
 ```
+
+The relay binds to `127.0.0.1` by default. Only widen the bind address on a
+trusted network: anyone who can reach the port may attempt to join channels, and
+the auth token is then your only protection.
+
+## Environment Variables (WebSocket relay)
+
+| Variable              | Default     | Description                                                |
+| --------------------- | ----------- | ---------------------------------------------------------- |
+| `FIGMA_SOCKET_TOKEN`  | random      | Shared secret required on `join`                            |
+| `PORT`                | `3055`      | Listen port                                                 |
+| `HOST`                | `127.0.0.1` | Bind address                                                |
+| `MAX_CHANNEL_CLIENTS` | `2`         | Max participants per channel                                |
+| `ALLOWED_ORIGINS`     | Figma only  | Extra comma-separated browser origins allowed to connect    |
 
 ## Usage
 
