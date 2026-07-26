@@ -402,6 +402,7 @@
         pendingRequests: new Map(),
         channel: null,
         commandTracking: new Map(),
+        lastError: null,
       };
 
       // --- Anonymous analytics (GA4 Measurement Protocol) ---
@@ -546,6 +547,7 @@
           }
 
           state.serverPort = port;
+          state.lastError = null;
           const wsUrl = `ws://localhost:${port}`;
 
           state.socket = new WebSocket(wsUrl);
@@ -603,6 +605,7 @@
                     ? data.message.error
                     : data.message;
                 console.error("Error:", errorText);
+                state.lastError = errorText;
                 updateConnectionStatus(false, `Error: ${errorText}`);
                 state.socket.close();
               }
@@ -616,7 +619,13 @@
           state.socket.onclose = () => {
             state.connected = false;
             state.socket = null;
-            updateConnectionStatus(false, "Disconnected from server");
+            // Keep the rejection reason (e.g. auth failure) visible.
+            updateConnectionStatus(
+              false,
+              state.lastError
+                ? `Error: ${state.lastError}`
+                : "Disconnected from server"
+            );
           };
 
           state.socket.onerror = (error) => {
